@@ -11,7 +11,7 @@ import {
 export const departments = pgTable('departments', {
   id: serial('id').primaryKey(),
   code: varchar('code', {length: 50}).notNull().unique(),
-  name: varchar('name', {length: 255}).notNull().unique(),
+  name: varchar('name',{length: 255}).notNull().unique(),
   description: varchar('description', {length: 500}).notNull().default(''),
   createdAt: timestamp('created_at', { withTimezone: true })
     .notNull()
