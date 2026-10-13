@@ -1,78 +1,112 @@
-import { eq, ilike, or,and, sql, getTableColumns, desc } from 'drizzle-orm';
+import { and, desc, eq, ilike, or, sql, type SQL } from 'drizzle-orm';
 import { Router } from 'express';
 import { db } from '../db/index.js';
-import {departments, subjects } from '../db/schema/index.js';
+import { departments, subjects } from '../db/schema/index.js';
 
 const subjectsRouter = Router();
+const DEFAULT_PAGE = 1;
+const DEFAULT_LIMIT = 10;
+const MAX_LIMIT = 100;
 
-//GET all subjects with optional search, filtering and pagination
+function parsePositiveInteger(value: unknown, fallback: number): number | null {
+  if (value === undefined) {
+    return fallback;
+  }
+
+  if (typeof value !== 'string' || !/^[1-9]\d*$/.test(value)) {
+    return null;
+  }
+
+  const parsed = Number(value);
+  return Number.isSafeInteger(parsed) ? parsed : null;
+}
 
 subjectsRouter.get('/', async (req, res) => {
-    
-    try{
+  const page = parsePositiveInteger(req.query.page, DEFAULT_PAGE);
+  const limit = parsePositiveInteger(req.query.limit, DEFAULT_LIMIT);
+  const search = req.query.search;
+  const department = req.query.department;
 
-        const {search, department, page = 1, limit = 10} = req.query;
-        const currentPage = Math.max(1, +page);
-        const limitPerPage = Math.max(1, +limit);
-        const offset = (currentPage - 1) * limitPerPage;
+  if (page === null || limit === null || limit > MAX_LIMIT) {
+    res.status(400).json({
+      error: `page and limit must be positive integers; limit cannot exceed ${MAX_LIMIT}`,
+    });
+    return;
+  }
 
-        //Where to store our filtered conditons
-        const filterConditions = [];
+  if (
+    (search !== undefined && typeof search !== 'string') ||
+    (department !== undefined && typeof department !== 'string')
+  ) {
+    res.status(400).json({ error: 'search and department must be single string values' });
+    return;
+  }
 
-        //If search query exist,filter by subject name or codes
-       if (search) {
-  filterConditions.push(
-    or(
-      ilike(subjects.name, `%${search}%`),
-      ilike(subjects.code, `%${search}%`)
-    )
-  );
-}
+  const offset = (page - 1) * limit;
+  if (!Number.isSafeInteger(offset)) {
+    res.status(400).json({ error: 'Requested page is too large' });
+    return;
+  }
 
-    //If department exist,match department name 
-    if (department) {
-  filterConditions.push(ilike(departments.name, `%${department}%`));
-}
-     
-   //Combine filters if they exist using the AND operator
-   const whereClause = filterConditions.length > 0 ? and(...filterConditions) : undefined;
+  const filters: SQL[] = [];
+  const searchTerm = search?.trim();
+  const departmentCode = department?.trim();
 
-   const countResult = await db
-   .select({count: sql<number>`count(*)`})
-   .from(subjects)
-   .leftJoin(departments, eq(subjects.departmentId, departments.id))
-   .where(whereClause);
+  if (searchTerm) {
+    const searchFilter = or(
+      ilike(subjects.name, `%${searchTerm}%`),
+      ilike(subjects.code, `%${searchTerm}%`),
+    );
+    if (searchFilter) {
+      filters.push(searchFilter);
+    }
+  }
 
-   const totalCount = countResult[0]?.count ?? 0;
-    
+  if (departmentCode) {
+    filters.push(eq(departments.code, departmentCode));
+  }
 
-   //Querying the data
+  const whereClause = filters.length > 0 ? and(...filters) : undefined;
 
-   const subjectList = await db
-   .select(
-    {...getTableColumns(subjects), 
-    department:{...getTableColumns(departments)}})
-    .from(subjects)
-    .leftJoin(departments, eq(subjects.departmentId, departments.id))
-    .where(whereClause)
-    .orderBy(desc(subjects.createdAt))
-    .limit(limitPerPage).offset(offset);
+  try {
+    const [countResult, subjectList] = await Promise.all([
+      db
+        .select({ count: sql<number>`count(*)::int` })
+        .from(subjects)
+        .innerJoin(departments, eq(subjects.departmentId, departments.id))
+        .where(whereClause),
+      db
+        .select({
+          id: subjects.id,
+          code: subjects.code,
+          name: subjects.name,
+          description: subjects.description,
+          department: departments.code,
+          createdAt: subjects.createdAt,
+        })
+        .from(subjects)
+        .innerJoin(departments, eq(subjects.departmentId, departments.id))
+        .where(whereClause)
+        .orderBy(desc(subjects.createdAt), desc(subjects.id))
+        .limit(limit)
+        .offset(offset),
+    ]);
 
-res.status(200).json({
-    data: subjectList,
-    pagination: {
-        page: currentPage,
-        limit: limitPerPage,
+    const totalCount = countResult[0]?.count ?? 0;
+
+    res.status(200).json({
+      data: subjectList,
+      pagination: {
+        page,
+        limit,
         total: totalCount,
-        totalPages: Math.ceil(totalCount / limitPerPage)
-    }
-})
-
-    }catch(e) {
-        console.error(`GET /subjects error: ${e}`);
-        res.status(500).json({error: 'Failed to get subjects'})
-    }
-
+        totalPages: Math.ceil(totalCount / limit),
+      },
+    });
+  } catch (error) {
+    console.error('GET /api/subjects failed:', error);
+    res.status(500).json({ error: 'Failed to fetch subjects' });
+  }
 });
 
 export default subjectsRouter;
