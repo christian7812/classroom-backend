@@ -5,11 +5,21 @@ import { departments, subjects } from "../db/schema/index.js";
 
 const router = express.Router();
 
+const parsePositiveInteger = (value: unknown, fallback: number): number => {
+  if (typeof value !== "string" || !/^[1-9]\d*$/.test(value.trim())) {
+    return fallback;
+  }
+
+  const parsed = Number(value);
+  return Number.isSafeInteger(parsed) ? parsed : fallback;
+};
+
 router.get("/", async (req, res) => {
   try {
     const { search, department, page = "1", limit = "10" } = req.query;
-    const currentPage = Math.max(1, Number(page) || 1);
-    const limitPerPage = Math.max(1, Number(limit) || 10);
+
+    const currentPage = parsePositiveInteger(page, 1);
+    const limitPerPage = parsePositiveInteger(limit, 10);
     const offset = (currentPage - 1) * limitPerPage;
 
     const filterConditions: SQL[] = [];
