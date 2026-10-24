@@ -1,10 +1,15 @@
 import { relations } from "drizzle-orm";
 import {
+  index,
   integer,
   pgTable,
+  text,
   timestamp,
+  unique,
   varchar,
 } from "drizzle-orm/pg-core";
+
+import { user } from "./auth.js";
 
 const timestamps = {
   createdAt: timestamp("created_at").defaultNow().notNull(),
@@ -33,14 +38,82 @@ export const subjects = pgTable("subjects", {
   ...timestamps,
 });
 
+export const classes = pgTable(
+  "classes",
+  {
+    id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+    subjectId: integer("subject_id")
+      .notNull()
+      .references(() => subjects.id, { onDelete: "restrict" }),
+    teacherId: text("teacher_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "restrict" }),
+    name: varchar("name", { length: 255 }).notNull(),
+    description: varchar("description", { length: 1000 }),
+    status: varchar("status", { length: 20 }).default("active").notNull(),
+    capacity: integer("capacity"),
+    bannerImage: varchar("banner_image", { length: 500 }),
+    bannerImageCldPubId: varchar("banner_image_cld_pub_id", { length: 255 }),
+    ...timestamps,
+  },
+  (table) => [
+    index("classes_subject_id_idx").on(table.subjectId),
+    index("classes_teacher_id_idx").on(table.teacherId),
+  ],
+);
+
+export const enrollments = pgTable(
+  "enrollments",
+  {
+    id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+    studentId: text("student_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    classId: integer("class_id")
+      .notNull()
+      .references(() => classes.id, { onDelete: "cascade" }),
+    status: varchar("status", { length: 20 }).default("enrolled").notNull(),
+    ...timestamps,
+  },
+  (table) => [
+    index("enrollments_student_id_idx").on(table.studentId),
+    index("enrollments_class_id_idx").on(table.classId),
+    unique("enrollments_student_class_unique").on(table.studentId, table.classId),
+  ],
+);
+
 export const departmentRelations = relations(departments, ({ many }) => ({
   subjects: many(subjects),
 }));
 
-export const subjectRelations = relations(subjects, ({ one }) => ({
+export const subjectRelations = relations(subjects, ({ one, many }) => ({
   department: one(departments, {
     fields: [subjects.departmentId],
     references: [departments.id],
+  }),
+  classes: many(classes),
+}));
+
+export const classRelations = relations(classes, ({ one, many }) => ({
+  subject: one(subjects, {
+    fields: [classes.subjectId],
+    references: [subjects.id],
+  }),
+  teacher: one(user, {
+    fields: [classes.teacherId],
+    references: [user.id],
+  }),
+  enrollments: many(enrollments),
+}));
+
+export const enrollmentRelations = relations(enrollments, ({ one }) => ({
+  student: one(user, {
+    fields: [enrollments.studentId],
+    references: [user.id],
+  }),
+  class: one(classes, {
+    fields: [enrollments.classId],
+    references: [classes.id],
   }),
 }));
 
@@ -48,3 +121,7 @@ export type Department = typeof departments.$inferSelect;
 export type NewDepartment = typeof departments.$inferInsert;
 export type Subject = typeof subjects.$inferSelect;
 export type NewSubject = typeof subjects.$inferInsert;
+export type Class = typeof classes.$inferSelect;
+export type NewClass = typeof classes.$inferInsert;
+export type Enrollment = typeof enrollments.$inferSelect;
+export type NewEnrollment = typeof enrollments.$inferInsert;
