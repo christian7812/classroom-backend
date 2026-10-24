@@ -5,6 +5,8 @@ import cors from 'cors'
 import securityMiddleware from "./middleware/security.js";
 import { toNodeHandler } from "better-auth/node";
 import { auth } from './lib/auth.js'
+import AgentAPI from 'apminsight'
+AgentAPI.config()
 
 const app = express();
 const port = 8000;
@@ -20,7 +22,7 @@ app.use(cors({
 }))
 
 //Middlewares
-app.all('/api/auth/{*splat', toNodeHandler(auth));
+app.all('/api/auth/*splat', toNodeHandler(auth));
 app.use(express.json());
 app.use(securityMiddleware)
 
