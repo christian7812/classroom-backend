@@ -125,3 +125,4 @@ export type Class = typeof classes.$inferSelect;
 export type NewClass = typeof classes.$inferInsert;
 export type Enrollment = typeof enrollments.$inferSelect;
 export type NewEnrollment = typeof enrollments.$inferInsert;
+ 
